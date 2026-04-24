@@ -15,10 +15,10 @@ app = Flask(__name__)
 CORS(app)
 
 # Configuration
-BASE_DIR = Path(__file__).parent.parent
-# Save directly to user's PC Downloads folder
-DOWNLOADS_DIR = Path.home() / "Downloads" / "YouTube_Downloads"
-VIDEOS_DB = DOWNLOADS_DIR / "videos_list.json"
+BASE_DIR = Path(__file__).parent
+# Use a 'downloads' folder relative to the backend — works on any server
+DOWNLOADS_DIR = BASE_DIR / "downloads"
+VIDEOS_DB = BASE_DIR / "videos_list.json"
 
 # Ensure downloads directory exists
 DOWNLOADS_DIR.mkdir(exist_ok=True)
@@ -238,4 +238,7 @@ def internal_error(error):
 if __name__ == '__main__':
     logger.info(f"Starting YouTube Video Downloader")
     logger.info(f"Downloads directory: {DOWNLOADS_DIR}")
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    # Use PORT env var (set by Railway/Render) or default to 5000
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    app.run(debug=debug, host='0.0.0.0', port=port)

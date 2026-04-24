@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *.class
@@ -7,7 +7,19 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
+# Ignore downloaded videos but keep the folder structure
+downloads/*.mp4
+downloads/*.webm
+downloads/*.mkv
+downloads/*.avi
+downloads/*.mov
+downloads/videos_list.json
+backend/downloads/*.mp4
+backend/downloads/*.webm
+backend/downloads/*.mkv
+backend/downloads/*.avi
+backend/downloads/*.mov
+backend/videos_list.json
 eggs/
 .eggs/
 lib/
