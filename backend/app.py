@@ -2,6 +2,8 @@ from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 import os
 import json
+import base64
+import tempfile
 import yt_dlp
 from pathlib import Path
 from datetime import datetime
@@ -88,38 +90,71 @@ def download_video():
         if 'youtube.com' not in url and 'youtu.be' not in url:
             return jsonify({'error': 'Please enter a valid YouTube URL'}), 400
         
-        # Check if cookies.txt exists in the user's Downloads folder or project root
-        project_root = Path(__file__).parent.parent
-        downloads_folder = Path.home() / 'Downloads'
-        
+        # --- Cookie resolution (priority: env var > local files) ---
         cookie_path = None
-        if (downloads_folder / 'cookies.txt').exists():
-            cookie_path = downloads_folder / 'cookies.txt'
-        elif (project_root / 'cookies.txt').exists():
-            cookie_path = project_root / 'cookies.txt'
-        
+        _temp_cookie_file = None  # track temp file for cleanup
+
+        # 1. Railway / production: YOUTUBE_COOKIES_BASE64 env var
+        cookies_b64 = os.environ.get('YOUTUBE_COOKIES_BASE64', '').strip()
+        if cookies_b64:
+            try:
+                cookie_data = base64.b64decode(cookies_b64).decode('utf-8')
+                _temp_cookie_file = tempfile.NamedTemporaryFile(
+                    mode='w', suffix='.txt', delete=False
+                )
+                _temp_cookie_file.write(cookie_data)
+                _temp_cookie_file.flush()
+                cookie_path = Path(_temp_cookie_file.name)
+                logger.info("Using cookies from YOUTUBE_COOKIES_BASE64 env var")
+            except Exception as e:
+                logger.warning(f"Failed to decode YOUTUBE_COOKIES_BASE64: {e}")
+
+        # 2. Local development: cookies.txt file on disk
+        if not cookie_path:
+            project_root = Path(__file__).parent.parent
+            downloads_folder = Path.home() / 'Downloads'
+            for candidate in [downloads_folder / 'cookies.txt', project_root / 'cookies.txt']:
+                if candidate.exists():
+                    cookie_path = candidate
+                    logger.info(f"Using cookies from: {cookie_path}")
+                    break
+
         # Configure yt-dlp options
         ydl_opts = {
-            'format': 'best',
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': str(DOWNLOADS_DIR / '%(title)s.%(ext)s'),
             'quiet': False,
             'no_warnings': False,
             'socket_timeout': 30,
             'noplaylist': True,
-            'js_runtimes': {'node': {}},
-            'remote_components': ['ejs:github'],
+            'http_chunk_size': 10485760,  # 10MB chunks
+            # Use Android/iOS player to bypass datacenter IP bot-detection
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios', 'web'],
+                }
+            },
         }
-        
+
         if cookie_path:
             ydl_opts['cookiefile'] = str(cookie_path)
-            logger.info(f"Using cookies from: {cookie_path}")
+            logger.info(f"Cookie file set: {cookie_path}")
         
         video_title = None
         filename = None
         
         # Download video
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+            try:
+                info = ydl.extract_info(url, download=True)
+            finally:
+                # Clean up temp cookie file if created
+                if _temp_cookie_file:
+                    try:
+                        _temp_cookie_file.close()
+                        Path(_temp_cookie_file.name).unlink(missing_ok=True)
+                    except Exception:
+                        pass
             video_title = info.get('title', 'Unknown')
             # Extract final filename correctly
             filename = ydl.prepare_filename(info)
